@@ -1,0 +1,170 @@
+---
+title: "Decision_Tree_ML"
+author: "MOF DS and AI Team"
+date: "11/2/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+    echo = FALSE,
+    message = FALSE,
+    warning = FALSE,
+    dpi = 300)
+```
+
+
+```{r}
+# Library for data manipulation and Visualization
+library(tidyverse)
+library(gmodels)
+library(forcats)
+library(purrr)
+library(lubridate)
+library(tidyquant)
+
+# Library for reading and loading data
+library(readr)
+library(readxl)
+library(writexl)
+library(stringr)
+library(stringi)
+library(fs)
+
+# Library for Machine Learning Packages
+library(parsnip)
+library(class)
+library(rpart)
+library(rpart.plot)
+library(ggrepel)
+library(broom)
+library(umap)
+library(rsample)
+library(yardstick)
+library(gmodels)
+
+ecol_class <- read_rds("00_Data/ecol_class.rds")
+```
+
+
+```{r}
+ecol_paid_tbl <-  ecol_class %>% filter(State == "PAID")
+
+# Filter to Only the Recon Status
+ecol_recon <- ecol_class %>% 
+  filter(State == "RECON")
+
+# Split and Resample into Train and Test Model 
+ecol_recon <- initial_split(ecol_recon, prop = 0.0012, strata = Amount_Range)
+
+# Merge the Paid and Recon Dataframe together
+ML_tbl <- training(ecol_recon) %>% rbind(ecol_paid_tbl)
+
+write_rds(ML_tbl, path = "00_Data/ML_tbl.rds")
+
+# Split Into Train and Test with 80% Trian and 20% Test
+split_ml <- ML_tbl %>% initial_split(prop = 0.80, strata = State)
+
+train_mof_poc_tbl <- training(split_ml)
+train_mof_poc_tbl <- train_mof_poc_tbl %>% select(-Dlvry_status, -Send_dlvry_state, -Source_Channel)
+test_mof_poc_tbl <- testing(split_ml)
+test_mof_poc_tbl <- test_mof_poc_tbl %>% select(-Dlvry_status, -Send_dlvry_state, -Source_Channel)
+test_mof_poc_tbl <- test_mof_poc_tbl %>% filter(Partner_code != "eProcurement Portal")
+
+train_mof_poc_tbl <- train_mof_poc_tbl %>% 
+  mutate(Bank_ID = as.character(Pmtmthd_bnk_id)) %>% 
+  mutate(Channel = as.character(Pmtmthd_pmt_channel)) %>% 
+  mutate(Payment_Method = as.character(Pmt_method)) %>% 
+  select(-Pmtmthd_bnk_id, -Pmtmthd_pmt_channel, -Pmt_method)
+
+
+
+test_mof_poc_tbl <- test_mof_poc_tbl %>% 
+  mutate(Bank_ID = as.character(Pmtmthd_bnk_id)) %>% 
+  mutate(Channel = as.character(Pmtmthd_pmt_channel)) %>% 
+  mutate(Payment_Method = as.character(Pmt_method)) %>% 
+  select(-Pmtmthd_bnk_id, -Pmtmthd_pmt_channel, -Pmt_method)
+  
+
+# View(train_mof_poc_tbl)
+# 
+# write_rds(train_mof_poc_tbl, path = "00_Data/train_mof_poc_tbl.rds")
+# 
+# write_rds(mof_decison_tree_model, path = "00_Data/mof_decison_tree_model.rds")
+
+# Creating the Decision Tree Model
+mof_decison_tree_model <-  decision_tree(mode = "classification", 
+              cost_complexity = 0.01,
+              tree_depth = 5, 
+              min_n = 10) %>% 
+  set_engine("rpart") %>% 
+  fit(State~., data = train_mof_poc_tbl)
+
+
+# Testing the Decision Tree Model on the Test Sample
+mof_state_prediction <-  predict(mof_decison_tree_model, test_mof_poc_tbl[-3])
+
+# Visualize the Decision Tree with the RPart Plot
+mof_decison_tree_model$fit %>% 
+  rpart.plot(roundint = FALSE, 
+             type = 1, 
+             extra = 101,
+             fallen.leaves = TRUE,
+             cex = 0.6)
+
+# Accuracy of 99%
+mof_decison_tree_model %>% 
+  predict(new_data = test_mof_poc_tbl %>% 
+            select(-State)) %>% 
+  bind_cols(test_mof_poc_tbl %>% select(State)) %>% 
+  yardstick::metrics(truth = State, estimate = .pred_class)
+
+
+# Create the Confusion Matrix Table
+CrossTable(test_mof_poc_tbl$State, mof_state_prediction$.pred_class, 
+           prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE,
+           dnn = c("Actual","Predicted"))
+
+
+
+# Precision 100%
+Precision = 74/(74 + 0)
+Precision
+
+# Recall 99%
+Recall_Sensitivity = 74/(74 + 1)
+Recall_Sensitivity
+
+# Specificity 100%
+Specificity = 92/(92 + 0)
+Specificity
+
+
+```
+
+### Accuracy (96%)
+
+### Precision
+```{r}
+Precision
+```
+
+### Recall
+```{r}
+Recall_Sensitivity
+```
+
+### Specificity
+```{r}
+Specificity
+```
+
+
+
+
+
+
+
+
+
+

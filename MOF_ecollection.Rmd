@@ -1,0 +1,1113 @@
+---
+title: "eCollection Analysis"
+author: "MOF DS Team"
+date: "10/15/2019"
+output:
+  html_document:
+    theme: flatly
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+    echo = FALSE,
+    message = FALSE,
+    warning = FALSE,
+    dpi = 300)
+```
+
+
+```{r, libraries}
+# Load Package and Libraries
+
+# Library for data manipulation and Visualization
+library(tidyverse)
+library(gmodels)
+library(forcats)
+library(purrr)
+library(lubridate)
+library(tidyquant)
+
+# Library for reading and loading data
+library(readr)
+library(readxl)
+library(writexl)
+library(stringr)
+library(stringi)
+library(fs)
+
+# Library for Machine Learning Packages
+library(parsnip)
+library(class)
+library(rpart)
+library(rpart.plot)
+library(ggrepel)
+library(broom)
+library(umap)
+library(rsample)
+library(yardstick)
+library(gmodels)
+library(tinytex)
+#tinytex::install_tinytex()
+
+
+# ecol_pymt_tbl <- read_excel("00_Data/ecollection_payments.xlsx", sheet = 1)
+ecol_pymt_tbl <- read_rds(path = "00_Data/ecol_pymt_tbl.rds")
+umap_kmeans_3_result_tbl <- read_rds("00_Data/umap_kmeans_3_result_tbl.rds")
+ecol_class <- read_rds("00_Data/ecol_class.rds")
+```
+
+### Knowledge, Findings and Highlights
+
+* **Internet and ATM** Channels Accounts for the Largest None Delivered Payment
+* **Ministry of Mineral Resources** Accounts for the Largest None Delivered Payment Amount
+* **Ministry of Finance** Have the Highest Payments Amount for a Ten (10) years Period (2009 - 2019)
+* In **2018** Ministry of Finance **Declined** in **Payments Amount** and The Ministry of Mineral Resources **Increased** in Payment Amount in **2018 and 2019**
+* **Gouf Province Municipal** Have the **Highest Number of Payments** but **low Payment Amount** than other Entities like **MOF and Ministry of Mineral Resources**
+* **Internet and ATM Channel** __Grew__ for Payments Above SAR 500K from **2018 to 2019**
+* Every **3 to 4 years** there seems to be a **fluctuation** in Payment Amount (Increase or Decrease) Across Channels
+* **Reconciled Payments** Is the **Largest** Across Payment Status
+* **Bank Teller Channel** is the Top Performing Channel with the **largest** Payment Amount
+* **Gouf Province Municipal** Accounts for the largest number of payment made with **Electronic Channels** (ATM, Internet, Mobile)
+* **Large Payments** Get's Delivered **Immediately** and most **Smaller Payments** takes longer time to get **delivered**
+* **Delayed Payments** are **Prevalent** with **POS, ATM and Internet** Channels
+* **Ministry of Finance and Gouf Province Municipal** have the largest number of **delayed** payment
+
+* Payments Between **SAR 500 and SAR 1000** should be done with **CAM, PDA and POS**
+* It is not By Chance that **Ministry of Mineral Resources** took the lead with the highest payment amount in **2018 and 2019** from **Ministry of Finance**. Therefore further investigation is required to know what really happened
+* Delivery time for **smaller payment** should be **Immediately** 
+
+
+
+
+
+```{r, transform data}
+ecol_pay_tbl <- ecol_pymt_tbl %>% 
+    select(-c(eclctn_pmt_ref_num, 
+              account_id, 
+              pmtmthd_trn_id, 
+              pmtmthd_bnk_trn_num, 
+              agency_id, account_id, settl_dt, rvsrl_dt, 
+              pmt_ref_info, dlvry_req_id, dlvry_ts, 
+              dlvry_error_code, dlvry_retry_count, 
+              calc_fees, calc_vat_amt, vat_number, last_batch_id, 
+              last_job_run_id, job_id, migrationdate, 
+              bill_cycle, cust_id, cust_id_type, recon_req_id, abc))
+
+ecol_pay_tbl <- ecol_pay_tbl %>% 
+                select(-c(recon_date_hijri, ismigrated, 
+                          as_of_date, bill_number, send_dlvry_ts,
+                          recon_dt))
+
+
+ecol_pay_tbl <- ecol_pay_tbl %>% 
+    set_names(. %>% str_to_title()) %>% 
+    mutate(Amount = as.numeric(Cur_amt)) %>% 
+    select(-Cur_amt) %>% 
+    mutate(Partner_code = as_factor(Partner_code)) %>% 
+    mutate(Pmtmthd_bnk_id = as_factor(Pmtmthd_bnk_id)) %>% 
+    mutate(Pmtmthd_pmt_channel = as_factor(Pmtmthd_pmt_channel)) %>% 
+    mutate(Pmt_dt = ymd_hms(Pmt_dt) %>% as.Date()) %>% 
+    mutate(Source_Channel = as_factor(Source_channel)) %>% 
+    mutate(Pmt_method = as_factor(Pmt_method)) %>% 
+    mutate(Dlvry_status = as_factor(Dlvry_status)) %>% 
+    mutate(Last_update_date = ymd_hms(Last_update_date)) %>% 
+    mutate(State = as_factor(State)) %>% 
+    mutate(Creation_date = ymd_hms(Creation_date)) %>% 
+    mutate(Send_flag = as_factor(Send_flag)) %>% 
+    mutate(Send_dlvry_state = as_factor(Send_dlvry_state))
+
+ecol_pay_tbl <- ecol_pay_tbl %>% 
+    mutate(Pmtmthd_pmt_channel = case_when(
+        Pmtmthd_pmt_channel == "BTELLER" ~ "Bank Teller",
+        Pmtmthd_pmt_channel == "IVR" ~ "Interactive Voice Response",
+        Pmtmthd_pmt_channel == "CAM" ~ "Common Area Maintenance",
+        Pmtmthd_pmt_channel == "CORP" ~ "Corporate Payment",
+        Pmtmthd_pmt_channel == "PDA" ~ "Payment Distribution Agencies",
+        Pmtmthd_pmt_channel == "POS" ~ "Point of Sales",
+        TRUE ~ as.character(Pmtmthd_pmt_channel)
+    ))
+
+
+ecol_pay_tbl <- ecol_pay_tbl %>% 
+    mutate(Pmtmthd_pmt_channel = as_factor(Pmtmthd_pmt_channel))
+
+
+ecol_pay_tbl <- ecol_pay_tbl %>% 
+    mutate(Partner_code = case_when(
+        Partner_code == "DMMR" ~ "Ministry of Mineral Resources",
+        Partner_code == "GEPP" ~ "eProcurement Portal",
+        Partner_code == "GPM" ~ "Gouf Province Municipal",
+        Partner_code == "MOE" ~ "Ministry of Education",
+        Partner_code == "MOF" ~ "Ministry of Finance",
+        Partner_code == "NBPM" ~ "Northern Boarder Municipal",
+        Partner_code == "PRC" ~ "Premium Residency Center",
+        Partner_code == "PTA" ~ "Public Transport Agency",
+        Partner_code == "REGA" ~ "Real Estate Government Agency",
+        Partner_code == "SAIP" ~ "Saudi Intellectual Property",
+        Partner_code == "SEDA" ~ "Saudi Export Development Agency",
+        Partner_code == "SIO" ~ "Saudi Irrigation Organization"
+    ))
+
+
+ecol_pay_tbl <- ecol_pay_tbl %>% 
+  select(-Main_agency_id) %>% 
+  mutate(Send_flag = case_when(
+    Send_flag == "Y" ~ "Yes",
+    Send_flag == "N" ~ "No"
+  )) %>%
+  # Removing some date columns we don't need
+  
+  # select(-Settl_dt, Dlvry_ts, -Send_dlvry_ts) %>% 
+  
+  # Creating a duration column from the creation date and last updated date for payment
+  
+mutate(duration = round(interval(Creation_date, Last_update_date)/ddays(1), digits = 2)) %>%
+mutate(duration_minutes = round
+       (interval(Creation_date, Last_update_date)/dminutes(1), digits = 2))
+
+```
+
+
+
+
+
+
+### None Delivered Payments Across Channels
+**Internet Channel** have the **Highest Payment Amount** not delivered than other channels
+```{r, bar plot}
+ecol_pay_tbl %>%
+    filter(Dlvry_status == "Not Delivered") %>% 
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+    group_by(Pmtmthd_pmt_channel, Partner_code) %>% 
+    summarise(Amount = sum(Amount)) %>% 
+    ungroup() %>% 
+    ggplot(aes(Pmtmthd_pmt_channel, Amount)) +
+    geom_col() +
+    theme_tq() +
+    scale_fill_tq() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(x = "",
+         y = "Payment Amount",
+         title = "None Delivered Payments Across Channels"
+         )
+
+```
+
+
+
+
+
+
+
+
+
+### Entity with High None Delivered Payments
+**Ministry of Mineral Resources** Have the highest **None Delivered Payment** than other **Entities**
+```{r}
+ecol_pay_tbl %>%
+    filter(Dlvry_status == "Not Delivered") %>% 
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+    mutate(Pmtmthd_pmt_channel = case_when(
+      Pmtmthd_pmt_channel == "Corporate Payment" ~ "CORP",
+      Pmtmthd_pmt_channel == "Interactive Voice Response" ~ "IVR",
+      Pmtmthd_pmt_channel == "Common Area Maintenance" ~ "CAM",
+      TRUE ~ as.character(Pmtmthd_pmt_channel)
+    )) %>% 
+    group_by(Pmtmthd_pmt_channel, Partner_code) %>% 
+    summarise(Amount = sum(Amount)) %>% 
+    ungroup() %>% 
+    ggplot(aes(Pmtmthd_pmt_channel, Amount)) +
+    geom_col() +
+    #coord_flip() +
+    facet_wrap(~Partner_code, ncol = 3) +
+    theme_tq() +
+    scale_fill_tq() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(x = "Payment Channel",
+         y = "Payment Amount",
+         title = "None Delivered Payments Across Entities"
+    )
+
+```
+
+
+
+
+
+
+
+
+### Volume of None Delivered Payments
+The **Volume** of None Delivered Payments is **very High** for **Internet and ATM Payments**
+```{r}
+ecol_pay_tbl %>%
+    filter(Dlvry_status == "Not Delivered") %>% 
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+    count(Pmtmthd_pmt_channel, Partner_code) %>% 
+    ggplot(aes(Pmtmthd_pmt_channel, n)) +
+    geom_col() +
+    theme_tq() +
+    scale_fill_tq() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(x = "",
+         y = "Payment Amount",
+         title = "Number of None Delivered Payments Across Channels"
+    )
+
+```
+
+
+### Channel Performance
+**None Delivered Payments**  are __Prevalent__ with **Internet, BTELLER and ATM Channels**.
+**Payment** amounts between **SAR 500 and SAR 1000** are not **Delivered Frequently** with **Internet, BTELLER, ATM and IVR Channels**. 
+**CAM, PDA and POS Channels** are more likely suitable for Payments btw SAR 500 and SAR 1000 as they have minimal **None Delivery** payments.
+
+```{r}
+ecol_pay_tbl %>% 
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+    ggplot(aes(Pmtmthd_pmt_channel, Amount)) +
+    geom_jitter(width = 0.1, alpha = 0.1) +
+    geom_violin(width = 0.8, alpha = 0.5) +
+    coord_flip() +
+    #scale_y_continuous(labels = scales::comma) +
+    scale_y_log10(labels = scales::comma) +
+    theme_tq() +
+    scale_fill_tq() +
+    facet_wrap(~Dlvry_status) +
+    labs(x = "Payment Amount",
+          y = "Payment Channel",
+          title = "POS, ATM, Internet & IVR for payments less than 1 Halal")
+```
+
+
+
+
+
+
+
+
+
+
+
+### Payments Above SAR 10M
+Payments above **SAR 10M** are done with **BTELLER and CORP Channels** 
+```{r, Boxplt}
+ecol_pay_tbl %>% 
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+    ggplot(aes(Pmtmthd_pmt_channel, Amount)) +
+    geom_boxplot() +
+    coord_flip() +
+    #scale_y_log10(labels = scales::comma)
+    scale_y_continuous(labels = scales::comma) +
+    labs(x = "Payment Amount",
+         y = "Payment Channels",
+         title = "BTELLER, CORP, INTERNET and ATM Contains Outliers")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+### 10 Years Overall Payment Performance
+**Ministry of Finance** have the **Highest Payment** amount for a **10 years period**
+(2009 - 2019).
+```{r}
+ecol_pay_tbl %>% 
+    ggplot(aes(Partner_code, Amount)) +
+    geom_col() +
+    scale_y_continuous(labels = scales::comma) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(x = "Entity",
+         y = "Payment Amount",
+         title = "Ministry of Finance Leads")
+```
+
+
+
+
+
+
+
+
+
+### Change in Payment Performance
+**Ministry of Mineral Resources** have the **Highest Payment** amount in **2019** compared to the **Previous Years**.
+**Ministry of Finance** shows a **declining trend** from **2018**
+```{r}
+ecol_pay_tbl %>% 
+    mutate(Year = year(Pmt_dt)) %>% 
+    filter(Year %in% c("2016","2017","2018", "2019")) %>%
+    group_by(Partner_code, Year) %>% 
+    summarise(Amount = sum(Amount)) %>% 
+    ggplot(aes(Partner_code, Amount)) +
+    geom_col() +
+    facet_wrap(~Year) +
+    scale_y_continuous(labels = scales::comma) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(x = "Entity",
+         y = "Payment Amount",
+         title = "MOF Declined in 2018 and MOE Increased in 2019")
+```
+
+
+
+
+
+
+
+
+
+
+### 4 Years Volume of Payment for Entities
+**Gouf Province Municipal** have the **Largest** volume of payments but **low payment amounts**.
+There is a **decrease** in the **Vumber of Payments** for **MOF** which begins in **2018**.
+**Ministry of Mineral Reources** shows **growth** in **2018 and 2019** with respect to the **volume of payments**.
+```{r}
+ecol_pay_tbl %>% 
+    mutate(Year = year(Pmt_dt)) %>% 
+    filter(Year %in% c("2016","2017","2018", "2019")) %>%
+    count(Partner_code, Year) %>% 
+    #summarise(Amount = sum(Amount)) %>% 
+    ggplot(aes(Partner_code, n)) +
+    geom_col() +
+    facet_wrap(~Year) +
+    #scale_y_continuous(labels = scales::comma) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(x = "Entity",
+         y = "Volume of Payments",
+         title = "Gouf Province Municipal have the highest number of ePayments")
+
+```
+
+
+
+
+
+
+
+
+
+```{r}
+ecol_pay_tbl %>% 
+  ggplot(aes(duration, Amount)) +
+  geom_point() +
+  scale_y_continuous(labels = scales::comma) +
+  theme_tq() + # making the background have a grid look
+  scale_fill_tq() +
+  labs(x = "Duration (Days)",
+       y = "Payment Amount",
+       title = "Large Payments seems to get completed Immediately",
+       subtitle = "small payments likely don't get completed Immedately")
+```
+
+
+
+
+
+
+
+
+
+```{r}
+ecol_pay_tbl %>% 
+  filter(duration >= 180) %>% 
+  filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+  count(Pmtmthd_pmt_channel) %>% 
+  ggplot(aes(Pmtmthd_pmt_channel, n)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = "Number of Delay",
+       x = "Channel",
+       title = "Delayed Payment Above 6 Months Across Channels")
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+ecol_pay_tbl %>% 
+  filter(duration >= 180) %>% 
+  filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+  count(Partner_code) %>% 
+  ggplot(aes(Partner_code, n)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Entity",
+       y = "Number of Delay",
+       title = "Entity with Delayed Payments Above 6 Months")
+```
+
+
+
+
+
+
+
+
+
+```{r}
+ecol_pay_tbl %>% 
+  filter(duration >= 90) %>% 
+  filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+  mutate(Year = year(Creation_date)) %>% 
+  count(Pmtmthd_pmt_channel, Year) %>% 
+  ggplot(aes(Pmtmthd_pmt_channel, n)) +
+  geom_col() +
+  facet_wrap(~Year) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Channel",
+       y = "Number of Delay",
+       title = "Delayed Payments of 3 Months from 2009 to 2019")
+```
+
+
+
+
+
+
+
+
+
+Low < 1 day, Medium < 26 days, High > 26 days
+```{r}
+ecol_class %>% 
+  filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+  count(duration_range, Pmtmthd_pmt_channel) %>% 
+  ggplot(aes(duration_range, n, fill = Pmtmthd_pmt_channel)) +
+  geom_col(position = "dodge") +
+  scale_y_continuous(labels = scales::comma) +
+  theme_tq() +
+  scale_fill_tq() +
+  labs(x = "Duration Range",
+       y = "Number of Delays",
+       title = "Delayed Payment by Channels")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+Low < 1 day, Medium < 26 days, High > 26 days
+```{r}
+ecol_class %>% 
+  bind_cols(ecol_pay_tbl %>% select(Creation_date)) %>%
+  mutate(Year = year(Creation_date)) %>%
+  select(-Creation_date) %>%
+  filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+  count(duration_range, Year, Pmtmthd_pmt_channel) %>% 
+  mutate(duration_range = fct_reorder2(duration_range, n, Year)) %>% 
+  ggplot(aes(duration_range, n, fill = Pmtmthd_pmt_channel)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~Year) +
+  scale_y_continuous(labels = scales::comma) +
+  theme_tq() +
+  scale_fill_tq() +
+  labs(x = "Duration Range",
+       y = "Number of Delay",
+       title = "Delayed Payment Across Years (2009 - 2019)")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+ecol_class %>% 
+  filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+  count(duration_range, Source_channel) %>% 
+  ggplot(aes(duration_range, n, fill = Source_channel)) +
+  geom_col(position = "dodge") +
+  scale_y_continuous(labels = scales::comma) +
+  theme_tq() +
+  scale_fill_tq() +
+  labs(x = "Duration",
+       y = "Number of Delay",
+       title = "Delayed Payment by Source Channel")
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+ecol_pay_tbl %>% 
+    mutate(Pyt_month = month(Pmt_dt, label = TRUE, abbr = TRUE)) %>% 
+    group_by(Pyt_month, State) %>% 
+    summarise(Amount = sum(Amount)) %>% 
+    ggplot(aes(Pyt_month, Amount)) +
+    geom_col() +
+    facet_wrap(~State) +
+    scale_y_continuous(labels = scales::comma) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(x = "Month",
+         y = "Payment Amount",
+         title = "Large Reconciliation Payments is Happening alot in July")
+```
+
+
+
+
+
+
+
+
+
+
+
+### Payments Above SAR 500K
+Payments **BTW SAR 500K and SAR 1M** are done Mostly with **ATM, BTELLER, INTERNET and CORP Channels**. However ATM Channel has more **variable payments** within **SAR 1M**.
+```{r, Above 500k}
+above_500k <- ecol_pay_tbl %>% 
+    filter(Amount > 500000)
+
+    above_500k %>% 
+    # mutate(Year = year(Pmt_dt)) %>%
+    # filter(Amount >= 1000000) %>% 
+    # filter(Year == 2018 | Year == 2019) %>%
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+    ggplot(aes(Pmtmthd_pmt_channel, Amount)) +
+    geom_jitter(width = 0.1) +
+    geom_violin(width = 0.8, alpha = 0.5) +
+    coord_flip() +
+    #scale_y_continuous(labels = scales::comma) +
+    scale_y_log10(labels = scales::comma) +
+    theme_tq() +
+    scale_fill_tq() +
+    #facet_wrap(~Year)
+    labs(x = "Payment Channel",
+         y = "Payment Amount",
+         title = "Channel Payments Above SAR 500K")
+```
+
+
+
+
+
+
+
+
+
+
+### Payment Preference 2018 & 2019
+**ATM and Internet** Payment Channel for Payments above **SAR 500K** __grew__ in **2019** as more payments **above SAR 500K** was done with **ATM and Internet Channels** than in 2018.
+**BTELLER** channel remains the Payment Channel of Choice for **large Payments**
+```{r}
+above_500k %>% 
+    mutate(Year = year(Pmt_dt)) %>%
+    filter(Year == 2018 | Year == 2019) %>%
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+    ggplot(aes(Pmtmthd_pmt_channel, Amount)) +
+    geom_jitter(width = 0.1) +
+    geom_violin(width = 0.8, alpha = 0.5) +
+    coord_flip() +
+    #scale_y_continuous(labels = scales::comma) +
+    scale_y_log10(labels = scales::comma) +
+    theme_tq() +
+    scale_fill_tq() +
+    facet_wrap(~Year) +
+    labs(x = "Payment Channel",
+         y = "Payment Amount",
+         title = "SAR 500K Payment Preference Growth BTW 2018 and 2019")
+```
+
+
+
+
+
+
+
+
+
+
+### Payment Channel Trends
+There is likely a **3 - 4 Years fluctuating trends** across **Top Channels**, Therefore Payment Amount **fluctuations** **(upward or downward)** are most like to happen every **3 - 4 years for Top Channels (CORP, POS, INTERNET, BTELLER, ATM and IVR)**.
+**CORP and Internet Channel** are on the **upward** trend while other channels are currently on the **downward trend**.
+```{r}
+ecol_pay_tbl %>% 
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+    mutate(pymt_date = floor_date(Pmt_dt, "year") %>% ymd()) %>% 
+    group_by(pymt_date, Pmtmthd_pmt_channel) %>% 
+    summarise(Amount = sum(Amount)) %>% 
+    
+    ungroup() %>% 
+    
+    ggplot(aes(pymt_date, Amount)) +
+    geom_point() +
+    geom_line(size = 0.5, linetype = 1) +
+    geom_smooth(span = 0.2, method = "loess") +
+    facet_wrap(~Pmtmthd_pmt_channel, ncol = 3) +
+    expand_limits(y = 0) +
+    scale_y_continuous(labels = scales::comma) +
+    theme_tq() +
+    scale_fill_tq() +
+    labs(x = "Year",
+         y = "Payment Amount",
+         title = "Payment Trends Across Channels")
+    
+```
+
+
+
+
+
+
+
+
+
+
+### Payment Delivery Trends
+There is an Upward Trend for **Payment Delivery** 
+```{r}
+ecol_pay_tbl %>% 
+    mutate(pymt_date = floor_date(Pmt_dt, "year") %>% ymd()) %>% 
+    group_by(pymt_date, Dlvry_status) %>% 
+    summarise(Amount = sum(Amount)) %>% 
+    
+    ungroup() %>% 
+    
+    ggplot(aes(pymt_date, Amount)) +
+    geom_point() +
+    geom_line(size = 0.5, linetype = 1) +
+    geom_smooth(span = 0.2, method = "loess") +
+    facet_wrap(~Dlvry_status) +
+    expand_limits(y = 0) +
+    scale_y_continuous(labels = scales::comma) +
+    theme_tq() +
+    scale_fill_tq() +
+    labs(x = "Year",
+         y = "Payment Amount",
+         title = "Payment Delivery Trends")
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+ecol_pay_tbl %>% 
+    mutate(pymt_date = floor_date(Pmt_dt, "year") %>% ymd()) %>% 
+    group_by(pymt_date, State) %>% 
+    summarise(Amount = sum(Amount)) %>% 
+    
+    ungroup() %>% 
+    
+    ggplot(aes(pymt_date, Amount)) +
+    geom_point() +
+    geom_line(size = 0.5, linetype = 1) +
+    geom_smooth(span = 0.2, method = "loess") +
+    facet_wrap(~State, ncol = 3) +
+    expand_limits(y = 0) +
+    scale_y_continuous(labels = scales::comma) +
+    theme_tq() +
+    scale_fill_tq() +
+    labs(x = "Year",
+         y = "Payment",
+         title = "Payment State are Mostly Reconciliation Payment and its Upward")
+
+```
+
+
+
+
+
+
+
+
+
+
+### 2018 & 2019 Channel Comparison
+**IVR and POS Channels** seems not to be **growing Month by Month** Compared to 2018 Payments Channels Transactions.
+**CORP Channel is the Best Growth Channel 2019** than any other Channel.
+```{r}
+pct_ecol_tbl <- ecol_pay_tbl %>% 
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+    count(Pmtmthd_pmt_channel, State) %>% 
+    group_by(Pmtmthd_pmt_channel, State, n) %>% 
+    summarise(quant = sum(n)) %>% 
+    
+    ungroup() %>% 
+    
+    group_by(Pmtmthd_pmt_channel) %>% 
+    mutate(pct = quant/sum(quant)) %>% 
+    
+    ungroup() %>% 
+    
+    mutate(Paymt_channel = as.factor(Pmtmthd_pmt_channel) %>% fct_rev()) %>% 
+    mutate(cust_num = as.numeric(Paymt_channel))
+
+mth_ecol_tbl <- ecol_pay_tbl %>% 
+    filter(!is.na(Pmtmthd_pmt_channel)) %>%
+    mutate(Month = month(Pmt_dt, label = TRUE, abbr = TRUE)) %>% 
+    count(Pmtmthd_pmt_channel, Month) %>% 
+    group_by(Pmtmthd_pmt_channel, Month, n) %>% 
+    summarise(quant = sum(n)) %>% 
+    
+    ungroup() %>% 
+    
+    group_by(Pmtmthd_pmt_channel) %>% 
+    mutate(pct = quant/sum(quant)) %>% 
+    
+    ungroup() %>% 
+    
+    mutate(Paymt_channel = as.factor(Pmtmthd_pmt_channel) %>% fct_rev()) %>% 
+    mutate(cust_num = as.numeric(Paymt_channel))
+
+
+Yr_tbl <- ecol_pay_tbl %>% 
+    filter(!is.na(Pmtmthd_pmt_channel)) %>%
+    mutate(Year = year(Pmt_dt)) %>% 
+    mutate(Month = month(Pmt_dt, label = TRUE, abbr = TRUE)) %>% 
+    count(Pmtmthd_pmt_channel, Year, Month) %>% 
+    group_by(Pmtmthd_pmt_channel, Year, Month, n) %>% 
+    summarise(quant = sum(n)) %>% 
+    
+    ungroup() %>% 
+    
+    group_by(Pmtmthd_pmt_channel) %>% 
+    mutate(pct = quant/sum(quant)) %>% 
+    
+    ungroup() %>% 
+    
+    mutate(Paymt_channel = as.factor(Pmtmthd_pmt_channel) %>% fct_rev()) %>% 
+    mutate(cust_num = as.numeric(Paymt_channel))
+
+Yr_tbl %>% 
+    filter(Year == 2018 | Year == 2019) %>% 
+    ggplot(aes(Paymt_channel, Month)) +
+    geom_tile(aes(fill = pct)) +
+    geom_text(aes(label =scales::percent(pct)), size = 3) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "none") +
+    scale_fill_gradient(low = "white", high = palette_light()[1]) +
+    facet_wrap(~Year) +
+    labs(x = "Payment Channel",
+         y = "Month",
+         title = "Payment Channel Comparison for 2018 and 2019")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+### Payment Channel Preference for Entities
+The Payment Channel of **Preference** for the **Leading** Payment Entity is **Corporate Payment** (Ministry of Mineral Resources) and for **Ministry of Finance** the leading Payment channels Preference are **POS, Bank Teller and CAM**
+```{r}
+
+# Heatmap of Entity Trend Dataframe
+partner_ecol_tbl <- ecol_pay_tbl %>% # Create a Dataframe of Partner trend
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% # Remove NA's
+    count(Pmtmthd_pmt_channel, Partner_code) %>% # Create count of Channel and Entity
+    group_by(Pmtmthd_pmt_channel, Partner_code, n) %>% 
+    summarise(quant = sum(n)) %>% # Sum the count column (n)
+    ungroup() %>% 
+    group_by(Pmtmthd_pmt_channel) %>% 
+    mutate(pct = quant/sum(quant)) %>% # Percent Proportion of Entity Count
+    ungroup() %>% 
+    mutate(Paymt_channel = as.factor(Pmtmthd_pmt_channel) %>% fct_rev()) %>% 
+    mutate(cust_num = as.numeric(Paymt_channel))
+
+
+
+partner_ecol_tbl %>% 
+    ggplot(aes(Paymt_channel, Partner_code)) +
+    geom_tile(aes(fill = pct)) +
+    geom_text(aes(label = scales::percent(pct)), size = 3) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "none") +
+    scale_fill_gradient(low = "white", high = palette_light()[1]) +
+    labs(x = "Payment Channel",
+         y = "Entity")
+```
+
+
+
+
+
+
+
+
+
+
+
+### Partner Payment Preference
+**MOF** accounts for all **POS** Channel Payments 
+```{r}
+partner_ecol_tbl <- ecol_pay_tbl %>% 
+    filter(!is.na(Pmtmthd_pmt_channel)) %>% 
+    count(Pmtmthd_pmt_channel, Partner_code) %>% 
+    group_by(Pmtmthd_pmt_channel, Partner_code, n) %>% 
+    summarise(quant = sum(n)) %>% 
+    
+    ungroup() %>% 
+    
+    group_by(Pmtmthd_pmt_channel) %>% 
+    mutate(pct = quant/sum(quant)) %>% 
+    
+    ungroup() %>% 
+    
+    mutate(Paymt_channel = as.factor(Pmtmthd_pmt_channel) %>% fct_rev()) %>% 
+    mutate(cust_num = as.numeric(Paymt_channel))
+
+
+
+partner_ecol_tbl %>% 
+    ggplot(aes(Paymt_channel, Partner_code)) +
+    geom_tile(aes(fill = pct)) +
+    geom_text(aes(label = scales::percent(pct)), size = 3) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "none") +
+    scale_fill_gradient(low = "white", high = palette_light()[1]) +
+    labs(x = "Payment Channel",
+         y = "Entity")
+```
+
+
+
+
+
+
+
+
+
+
+
+### Percentage Yearly Growth
+In **2010** There was a **significante** growth for Payment about **68790%**. Therefore **2010 Payment pattern** needs to be replicated to increase Growth for the coming years
+```{r}
+Yr_col_tbl <- ecol_pay_tbl %>% 
+    mutate(Year = year(Pmt_dt)) %>% 
+    group_by(Year) %>% 
+    summarise(Amount = sum(Amount))
+
+
+# mth cal 2019
+mth_col_tbl <- ecol_pay_tbl %>% 
+    mutate(Month = month(Pmt_dt, label = TRUE, abbr = FALSE)) %>% 
+    mutate(Year = year(Pmt_dt)) %>% 
+    filter(Year == 2019) %>% 
+    group_by(Month) %>% 
+    summarise(Amount = sum(Amount))
+
+
+# mth cal 2018
+mth_col_2018_tbl <- ecol_pay_tbl %>% 
+    mutate(Month = month(Pmt_dt, label = TRUE, abbr = FALSE)) %>% 
+    mutate(Year = year(Pmt_dt)) %>% 
+    filter(Year == 2018) %>% 
+    group_by(Month) %>% 
+    summarise(Amount = sum(Amount))
+
+
+Yr_col_tbl %>% 
+    mutate(Amount_lag = lag(Amount, n = 1)) %>% 
+    mutate(Amount_lag = case_when(
+        is.na(Amount_lag) ~ Amount,
+        TRUE ~ Amount_lag
+    )) %>% 
+    
+    mutate(diff_1 = Amount - Amount_lag) %>% 
+    mutate(pct_diff = diff_1 / Amount_lag) %>% 
+    mutate(pct_diff_char = scales::percent(pct_diff, accuracy = 1)) %>% 
+    select(Year, Amount, pct_diff_char) %>% 
+    rename(Percent = pct_diff_char)
+    
+```
+
+
+
+
+
+
+
+
+
+
+
+
+### 2018 & 2019 Monthly Trend
+There is similar **Quarterly Trends** for 2018 and 2019.
+**Q2 2019** was far better than **Q2 2018**, However **July 2018 Outperform** July 2019 and there is a noticeable **downward sharp trend** for **August 2018 and 2019**.
+```{r}
+calculate_pct_diff <- function(data) {
+    data %>% 
+        mutate(Amount_lag = lag(Amount, n = 1)) %>% 
+        mutate(Amount_lag = case_when(
+            is.na(Amount_lag) ~ Amount,
+            TRUE ~ Amount_lag
+        )) %>% 
+        
+        mutate(diff_1 = Amount - Amount_lag) %>% 
+        mutate(pct_diff = diff_1 / Amount_lag) %>% 
+        mutate(pct_diff_char = scales::percent(pct_diff, accuracy = 1)) %>% 
+        select(Month, Amount, pct_diff_char) %>% 
+        rename(Percent = pct_diff_char)
+    
+}
+
+
+m_2019 <- mth_col_tbl %>% 
+    calculate_pct_diff()
+
+
+m_2018 <- mth_col_2018_tbl %>% 
+    calculate_pct_diff()
+
+trend_data <- m_2019 %>% 
+    bind_cols(m_2018 %>% filter(!Month %in% c("September", "October", "November", "December"))) %>% 
+    rename(Pct_2019 = Percent) %>% 
+    rename(Pct_2018 = Percent1) %>% 
+    select(-Month1) %>% 
+    rename(Amount_2019 = Amount) %>% 
+    rename(Amount_2018 = Amount1)
+
+
+
+trend_data %>% 
+    select(Month, Amount_2018, Amount_2019, everything()) %>% 
+    gather(key = "Year_Amount", value = "Amount", -Pct_2019, -Pct_2018, -Month) %>% 
+    group_by(Month, Year_Amount) %>% 
+    summarise(Amount = sum(Amount)) %>% 
+    ungroup() %>% 
+    ggplot(aes(x = Month, y = Amount, group = Year_Amount)) +
+    geom_point() +
+    geom_line(aes(color = Year_Amount)) +
+    #geom_density() +
+    #geom_line(size = 0.5, type = "l") +
+    geom_smooth(span = 0.2, method = "loess") +
+    expand_limits(y = 0) +
+    scale_y_continuous(labels = scales::comma) +
+    theme_tq() +
+    scale_fill_tq() +
+    labs(x = "Month",
+         y = "Payment Amount",
+         title = "Monthly Trend for 2018 and 2019")
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+umap_kmeans_3_result_tbl %>% # using the merged umap and clustering table
+    distinct(Partner_code, .keep_all = TRUE) %>% # select the distinct entity
+    mutate(label_text = str_glue("Entity: {Partner_code} 
+                                 Cluster: {.cluster}")) %>% # create label_text to display entity and the assigned cluster
+    ggplot(aes(X, Y, color = .cluster)) +
+    geom_point() +
+    geom_label_repel(aes(label = label_text), size = 3) +
+    theme_tq() +
+    scale_color_tq() +
+    labs(
+        title = "eCollection Payment Entity Segmentation",
+        subtitle = "UMAP Kmeans Clustering"
+    ) +
+  theme(legend.position = "none")
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+cluster_label_tbl <- tibble(
+  .cluster = 1:3,
+  .cluster_label = c(
+    "Internet Channel, Low Payment, Paid, BLN/G2G",
+    "BTELLER/Internet, Low Payment, Paid/Recon, BLN",
+    "INTERNET/COROP/BTELLER, High/Medium/Low, Mostly G2G, RECON"
+  )
+) %>% 
+  mutate(.cluster = as_factor(as.character(.cluster)))
+
+
+
+umap_kmeans_3_result_tbl %>% 
+  left_join(cluster_label_tbl) %>% 
+  distinct(Partner_code, .keep_all = TRUE) %>% 
+  mutate(label_text = str_glue("Entity: {Partner_code}
+                                 Cluster: {.cluster}
+                               {.cluster_label}")) %>% 
+  ggplot(aes(X, Y, color = .cluster)) +
+  geom_point() +
+  geom_label_repel(aes(label = label_text), size = 3) +
+  theme_tq() +
+  scale_color_tq() +
+  labs(x = "",
+       y = "",
+    title = "eCollection Payment Entity Segmentation 2D Projection",
+    subtitle = "UMAP Kmeans Clustering"
+  ) +
+  theme(legend.position = "none")
+
+```
+
+
+There are **3 distinct categories** of Entities with respect to Payment Channel Preference, Payment amount size, Payment Status and Source of Channels for Payments.
+
+* Cluster 1 Entities make most payments with Internet Channel and are mostly low payments amount (payments less than SAR 16,081.24) with Payment source of BLN/G2G source.
+
+* Cluster 2 Entities make payments with Bank Teller and Internet Channels, mostly low payment amounr with Status of payment, split between Reconciliation and Paid status, with BLN source channel.
+
+* Cluster 3 Entities make payments with Internet/Corp and Bank Teller channels for High and Medium Payments amount (>= 731870.91) and mostly with G2G source channels.
+
+

@@ -1,0 +1,289 @@
+---
+title: "eCollection_Updated"
+author: "MOF DS and AI Team"
+date: "10/31/2019"
+output: 
+    html_document:
+    theme: flatly
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+    echo = FALSE,
+    message = FALSE,
+    warning = FALSE,
+    dpi = 300)
+```
+
+
+```{r, libraries}
+# Load Package and Libraries
+
+# Library for data manipulation and Visualization
+library(tidyverse)
+library(gmodels)
+library(forcats)
+library(purrr)
+library(lubridate)
+library(tidyquant)
+
+# Library for reading and loading data
+library(readr)
+library(readxl)
+library(writexl)
+library(stringr)
+library(stringi)
+library(fs)
+
+# Library for Machine Learning Packages
+library(parsnip)
+library(class)
+library(rpart)
+library(rpart.plot)
+library(ggrepel)
+library(broom)
+library(umap)
+library(rsample)
+library(yardstick)
+library(gmodels)
+
+
+# ecol_pymt_tbl <- read_excel("00_Data/ecollection_payments.xlsx", sheet = 1)
+ecol_pymt_tbl <- read_rds(path = "00_Data/ecol_pymt_tbl.rds")
+umap_kmeans_3_result_tbl <- read_rds("00_Data/umap_kmeans_3_result_tbl.rds")
+```
+
+
+### Knowledge and Findings
+
+* **Internet and ATM** Channels Accounts for the Largest None Delivered Payment
+* **Ministry of Mineral Resources** Accounts for the Largest None Delivered Payment Amount
+* **Ministry of Finance** Have the HHighest Payments Amount for a Ten (10) years Period (2009 - 2019)
+* In **2018** Ministry of Finance **Declined** in **Payments Amount** and The Ministry of Mineral Resources **Increased** in Payment Amount in **2018 and 2019**
+* **Gouf Province Municipal** Have the **Highest Number of Payments** but **low Payment Amount** than other Entities like **MOF and Ministry of Mineral Resources**
+* **Internet and ATM Channel** __Grew__ for Payments Above SAR 500K from **2018 to 2019**
+* Every **3 to 4 years** there seems to be a **fluctuation** in Payment Amount (Increase or Decrease) Across Channels
+* **Reconciled Payments** Is the **Largest** Across Payment Status
+* Bank Teller Channel is the Top Performing Channel with the largest Payment Amount
+
+### Recommendation and Decision Support
+
+* Payments Between SAR 500 and SAR 1000 should be done with CAM, PDA and POS
+* It is not By Chance that Ministry of Mineral Resources took the lead with the highest payment amount in 2018 and 2019 from Ministry of Finance. Therefore further investigation is required to know what really happened
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

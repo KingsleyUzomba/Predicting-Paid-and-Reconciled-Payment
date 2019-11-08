@@ -1,0 +1,200 @@
+---
+title: "eCollection Prediction"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    css: css/styles-default.css
+    logo: img/mof_logo.png
+    runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(shinyjs)
+library(shinyWidgets)
+#Load Packages
+
+library(tidyverse)
+library(tidyquant)
+# library(cowplot)
+# library(glue)
+# library(recipes)
+library(readxl)
+# library(writexl)
+# library(lubridate)
+# library(forcats)
+# library(stringr)
+# library(skimr)
+# library(rsample)
+library(parsnip)
+# library(recipes)
+# library(rsample)
+library(yardstick)
+
+
+
+#Data
+ML_tbl <- read_rds("00_Data/ML_tbl.rds")
+
+mof_decison_tree_model <- read_rds("00_Data/mof_decison_tree_model.rds")
+
+train_mof_poc_tbl <- read_rds("00_Data/train_mof_poc_tbl.rds")
+
+
+
+
+```
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+useShinyjs(rmd = TRUE)
+
+pickerInput(inputId  = "Entity",
+            label    = h4("Entity"),
+            choices  = train_mof_poc_tbl %>% distinct(Partner_code),
+            selected = "Gouf Province Municipal")
+
+
+pickerInput(inputId = "Payment_Bank",
+            label = h4("Bank ID"),
+            choices = train_mof_poc_tbl %>% distinct(Bank_ID),
+            selected = "RJHISARI")
+
+
+pickerInput(inputId = "Channel",
+            label = h4("Channel"),
+            choices = train_mof_poc_tbl %>% distinct(Channel),
+            selected = "INTERNET")
+
+
+pickerInput(inputId = "Source_Channel",
+            label = h4("Source_Channel"),
+            choices = train_mof_poc_tbl %>% distinct(Source_channel),
+            selected = "G2G")
+
+pickerInput(inputId = "Payment_method",
+            label = h4("Payment_method"),
+            choices = train_mof_poc_tbl %>% distinct(Payment_Method),
+            selected = "SADAD")
+
+
+numericInput(inputId = "Amount",
+             label = h4("Amount"),
+             value = 1000.00)
+
+
+numericInput(inputId = "duration",
+             label = h4("Duration"),
+             value = 0.65)
+
+
+
+pickerInput(inputId = "duration_range",
+            label = h4("Duration Range"),
+            choices = train_mof_poc_tbl %>% distinct(duration_range),
+            selected = "Low")
+
+
+pickerInput(inputId = "Amount_Range",
+            label = h4("Amount Range"),
+            choices = train_mof_poc_tbl %>% distinct(Amount_Range),
+            selected = "Medium")
+
+
+
+br()
+hr()
+br()
+
+actionButton(inputId = "apply", 
+             label = "Apply", 
+             icon = icon(name = "play", lib = "font-awesome"))
+
+actionButton(inputId = "reset", label = "Reset", icon = icon("sync"))
+
+observeEvent(eventExpr = input$reset, handlerExpr = {
+     updatePickerInput(session = session, 
+                     inputId = "Entity", 
+                     selected = "Gouf Province Municipal")
+     
+     updatePickerInput(session   = session, 
+                       inputId  = "Payment_Bank",
+                       selected  =   "RJHISARI")
+     
+      updatePickerInput(session   = session, 
+                       inputId  = "Channel",
+                       selected  =   "INTERNET")
+     
+     updatePickerInput(session = session,
+                     inputId = "Source_Channel",
+                     selected = "G2G")
+     
+       updatePickerInput(session = session,
+                     inputId = "Payment_method",
+                     selected = "SADAD")
+     
+      updateNumericInput(session = session,
+                         inputId = "Amount",
+                         value = 1000.00)
+      
+      updateNumericInput(session = session,
+                         inputId = "duration",
+                         value = 0.65)
+     
+     updatePickerInput(session = session,
+                     inputId = "duration_range",
+                     selected = "Low")
+     
+      updatePickerInput(session = session,
+                     inputId = "Amount_Range",
+                     selected = "Medium")
+     
+     
+     delay(ms = 300, expr = {
+          click(id = "apply")
+     })
+})
+
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### eCollection Statuss Prediction
+
+```{r}
+
+ecol_pred_tbl <- eventReactive(eventExpr = input$apply, valueExpr = {
+     new_contract <- tibble(
+        Partner_code = input$Entity,
+        Bank_ID = input$Payment_Bank,
+        Channel = input$Channel,
+        Source_channel = input$Source_Channel,
+        Payment_Method  = input$Payment_method,
+        Amount = input$Amount,
+        duration = input$duration,
+        duration_range = input$duration_range,
+        Amount_Range = input$Amount_Range)
+     
+ecol_pred_tbl <- new_contract %>% 
+        predict(mof_decison_tree_model, new_data = .) %>% 
+        bind_cols(new_contract) %>% 
+        rename(State = .pred_class)
+
+ecol_pred_tbl %>% 
+gather(key = "eCollection Attribute", 
+       value = "Value", -Partner_code, factor_key = TRUE) %>%
+spread(key = Partner_code, value = Value)
+}, ignoreNULL = FALSE)
+
+```
+
+
+```{r}
+renderTable({ecol_pred_tbl()})
+
+```
